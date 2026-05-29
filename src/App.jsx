@@ -142,7 +142,8 @@ function Nav({ view, setView, modoReal, historialCount }) {
 
 // ─── DASHBOARD VIEW ────────────────────────────────────────────────
 function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSelectForPropuesta }) {
-  const [ticket, setTicket]   = useState("");
+  const [ticket, setTicket]   = useState(()=>localStorage.getItem("licitia_ticket")||"");
+  useEffect(()=>{ localStorage.setItem("licitia_ticket", ticket); },[ticket]);
   const [loading, setLoading] = useState(false);
   const [filtro, setFiltro]   = useState("TODAS");
   const [selected, setSelected] = useState(null);
@@ -327,7 +328,10 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
   };
 
   const buscarHistorico = async (licitacion) => {
-    if (!ticket) return alert("Necesitas un ticket de API para buscar precios históricos.");
+    if (!ticket) {
+      setHistoricoPrecio(prev=>({...prev,[licitacion.CodigoLicitacion]:{sinTicket:true}}));
+      return;
+    }
     setLoadingHistorico(true);
     try {
       const p = new URLSearchParams({
@@ -569,7 +573,13 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
                 {loadingHistorico?"⏳ Buscando histórico...":"💰 VER PRECIOS HISTÓRICOS"}
               </Btn>
             )}
-            {hp && (
+            {hp?.sinTicket && (
+              <div style={{background:`${C.yellow}10`,border:`1px solid ${C.yellow}30`,borderRadius:8,padding:"10px 12px",marginBottom:10,display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{color:C.yellow,fontSize:13}}>⚠</span>
+                <span style={{color:C.yellow,fontSize:11,fontFamily:"'DM Mono',monospace"}}>Conecta la API primero con tu ticket en la barra superior</span>
+              </div>
+            )}
+            {hp && !hp.sinTicket && (
               <div style={{marginBottom:14}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                   <Pill color={C.green}>PRECIOS HISTÓRICOS</Pill>
