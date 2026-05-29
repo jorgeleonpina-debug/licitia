@@ -211,7 +211,7 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
   const analizarUna = async l => {
     try {
       console.log("Licitacion raw:", JSON.stringify(l));
-      const res = await fetch("http://localhost:3001/api/claude",{
+      const res = await fetch("/api/claude",{
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:400,messages:[{role:"user",content:`Analiza esta licitación chilena. Responde SOLO JSON sin markdown:\n{"score":número 1-10,"recomendacion":"ATACAR"|"MONITOREAR"|"IGNORAR","razon":"1-2 oraciones"}\n\nNombre: ${l.Nombre||"Sin nombre"}\nOrganismo: ${l.Organismo||"Desconocido"}\nDescripción: ${l.Descripcion||""}\nMonto: ${l.MontoEstimado||"No informado"}\nTipo: ${l.Tipo||"LE"}\nFecha cierre: ${l.FechaCierre||"Sin fecha"}\nRegión: ${l.Region||""}\n\nCriterios — ATACAR: L1/LE + monto bajo + servicio simple; MONITOREAR: datos insuficientes o monto medio; IGNORAR: LP/LQ/LR o muy compleja.`}]})
       });
@@ -500,7 +500,7 @@ function Propuesta({ licitacionPre, onGuardar, onIrHistorial }) {
       const s=SECCIONES[i]; setSecActual(s.id);
       setProgreso(Math.round((i/SECCIONES.length)*100));
       try {
-        const res = await fetch("http://localhost:3001/api/claude",{
+        const res = await fetch("/api/claude",{
           method:"POST",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({model:"claude-sonnet-4-5",max_tokens:1000,messages:[{role:"user",content:PROMPTS[s.id]}]})
         });
