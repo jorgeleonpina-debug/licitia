@@ -661,6 +661,19 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
 }
 
 // ─── SECCION CARD (fixes useState-in-map hook violation) ───────────
+function renderMarkdown(texto) {
+  return texto
+    .replace(/^### (.+)$/gm, '<h3 style="font-size:13px;margin:10px 0 4px;font-weight:700">$1</h3>')
+    .replace(/^## (.+)$/gm,  '<h2 style="font-size:15px;margin:12px 0 5px;font-weight:700">$1</h2>')
+    .replace(/^# (.+)$/gm,   '<h1 style="font-size:17px;margin:14px 0 6px;font-weight:700">$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+    .replace(/^- (.+)$/gm,   '<li style="margin-left:16px;margin-bottom:3px">$1</li>')
+    .replace(/(<li[\s\S]*?<\/li>)/g, '<ul style="margin:6px 0;padding-left:4px">$1</ul>')
+    .replace(/\n\n/g, '</p><p style="margin:6px 0">')
+    .replace(/\n/g,   '<br>');
+}
+
 function SeccionCard({ sec, contenido, generando, secActual }) {
   const [cp, setCp] = useState(false);
   const isLoading = generando && secActual === sec.id;
@@ -678,7 +691,7 @@ function SeccionCard({ sec, contenido, generando, secActual }) {
         {isLoading
           ? <div style={{display:"flex",gap:8,alignItems:"center"}}><div style={{width:5,height:5,borderRadius:"50%",background:C.accent,animation:"pulse 1s infinite"}}/><span style={{color:C.muted,fontSize:12,fontFamily:"'DM Mono',monospace"}}>Generando con IA…</span></div>
           : contenido
-            ? <pre style={{margin:0,color:C.text,fontSize:12,lineHeight:1.8,fontFamily:"'Plus Jakarta Sans',sans-serif",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{contenido}</pre>
+            ? <div style={{margin:0,color:C.text,fontSize:12,lineHeight:1.8,fontFamily:"'Plus Jakarta Sans',sans-serif",wordBreak:"break-word"}} dangerouslySetInnerHTML={{__html:renderMarkdown(contenido)}}/>
             : <span style={{color:C.dim,fontSize:11,fontFamily:"'DM Mono',monospace"}}>Pendiente…</span>
         }
       </div>
@@ -714,9 +727,9 @@ function Propuesta({ licitacionPre, onGuardar, onIrHistorial }) {
     metodologia:`Redacta la metodología de trabajo para ejecutar "${lic.nombre}" en rubro "${lic.rubro}". Bases: ${lic.basesResumen||"contrato estándar de servicio"}. Incluye: fases, procedimientos, controles de calidad, coordinación. Formato numerado, máx 350 palabras.`,
     equipo:`Redacta sección de equipo para "${emp.nombre}" en licitación "${lic.nombre}". Fortalezas: ${emp.fortalezas||"equipo comprometido y profesional"}. Crea perfiles genéricos relevantes para rubro "${lic.rubro}" con roles y responsabilidades. Máx 250 palabras.`,
     cronograma:`Redacta cronograma de actividades para ejecutar "${lic.nombre}" en rubro "${lic.rubro}". Presenta tabla de texto con semanas/meses, actividades, responsables e hitos. Claro y ejecutable, máx 300 palabras.`,
-    economica:`Redacta propuesta económica formal para "${lic.nombre}" de "${lic.organismo}". Monto estimado organismo: $${lic.monto}. Precio ofertado: $${emp.precio||Math.round(parseInt(lic.monto||0)*.88)}. Incluye: desglose de costos, valor neto, IVA, total, forma de pago, validez 30 días. Formato formal.`,
+    economica:`Redacta propuesta económica formal en PESOS CHILENOS para "${lic.nombre}" del organismo "${lic.organismo}". Fecha actual: ${new Date().toLocaleDateString("es-CL")}. Número de propuesta: ${Math.floor(Math.random()*9000)+1000}. Empresa oferente: "${emp.nombre}", RUT: ${emp.rut||"Sin RUT"}, domicilio: ${emp.giro?"Santiago, Chile":"Santiago, Chile"}. Monto estimado por el organismo: $${parseInt(lic.monto||0).toLocaleString("es-CL")} pesos chilenos. Precio ofertado: $${parseInt(emp.precio||Math.round(parseInt(lic.monto||0)*.88)||0).toLocaleString("es-CL")} pesos chilenos. Incluye: desglose de ítems de costo con valores en pesos chilenos, subtotal neto, IVA 19%, total con IVA, forma de pago (30 días factura), validez de oferta 30 días corridos. No uses corchetes [] ni campos vacíos — completa todos los datos con la información disponible o valores razonables. Formato formal legal chileno.`,
     experiencia:`Redacta sección de experiencia de "${emp.nombre}" para "${lic.nombre}". Experiencia: ${emp.experiencia||"empresa nueva con capacidad técnica comprobable"}. Si es poca, destaca capacidades y compromiso. Incluye 2-3 referencias genéricas. Máx 250 palabras.`,
-    declaraciones:`Redacta declaraciones juradas estándar para licitación pública chilena. Incluye: no inhabilitado para contratar con el Estado, sin deudas laborales/previsionales, veracidad de información, cumplimiento de bases. Datos: empresa "${emp.nombre}", RUT "${emp.rut}", representante "${emp.contacto}". Formato legal formal.`,
+    declaraciones:`Redacta declaraciones juradas estándar para licitación pública chilena. Incluye: no inhabilitado para contratar con el Estado, sin deudas laborales/previsionales, veracidad de información, cumplimiento de bases. Datos: empresa "${emp.nombre}", RUT "${emp.rut}", representante legal "${emp.contacto||emp.nombre}". No uses corchetes [] ni campos vacíos. Formato legal formal chileno con lugar (Santiago), fecha actual ${new Date().toLocaleDateString("es-CL")} y firma del representante.`,
   };
 
   const generar = async () => {
@@ -1113,10 +1126,12 @@ export default function App() {
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
         @media print{
           .no-print{display:none!important}
-          .print-content{background:white!important;color:black!important;padding:20px}
+          *{background:white!important;color:black!important;border-color:#ccc!important;box-shadow:none!important}
           body{background:white!important;color:black!important}
-          pre{color:black!important;font-size:11pt!important;line-height:1.6!important}
-          .print-header{display:block!important;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px}
+          .card,div,section{background:white!important}
+          pre,p,span,li,h1,h2,h3{color:black!important}
+          pre{font-size:11pt!important;line-height:1.6!important}
+          .print-header{display:block!important;border-bottom:2px solid #000!important;padding-bottom:10px;margin-bottom:20px}
         }
         *{box-sizing:border-box}
         input::placeholder,textarea::placeholder{color:#2A3D55}
