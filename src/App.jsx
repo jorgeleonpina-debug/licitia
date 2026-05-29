@@ -660,6 +660,84 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
   );
 }
 
+// ─── PDF EXPORT HELPER ────────────────────────────────────────────
+function buildPropuestaHTML({ nombre, organismo, codigo, empresa, rut, fecha, secciones }) {
+  const mdToHtml = t => t
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm,  '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm,   '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+    .replace(/^- (.+)$/gm,   '<li>$1</li>')
+    .replace(/\n/g, '<br>');
+
+  const htmlSecciones = SECCIONES.map(s => {
+    const c = secciones[s.id] || '';
+    return `<div class="seccion">
+      <div class="seccion-header">${s.icon} ${s.label.toUpperCase()}</div>
+      <div class="seccion-body">${c ? mdToHtml(c) : '<em>Sin contenido</em>'}</div>
+    </div>`;
+  }).join('');
+
+  return `<!DOCTYPE html><html lang="es"><head>
+<meta charset="UTF-8">
+<title>Propuesta - ${nombre}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;font-size:11pt;color:#1a1a1a;background:white}
+.portada{background:#1a2942;color:white;padding:40px;text-align:center;margin-bottom:30px}
+.portada .logo{font-size:14pt;letter-spacing:3px;color:#00d4ff;margin-bottom:30px;font-weight:bold}
+.portada h1{font-size:20pt;font-weight:bold;margin-bottom:10px;line-height:1.3}
+.portada .organismo{font-size:12pt;color:#aac4e0;margin-bottom:20px}
+.portada .meta{display:flex;justify-content:center;gap:40px;font-size:10pt;color:#ccddef;margin-top:20px;flex-wrap:wrap}
+.portada .meta div{text-align:center}
+.portada .meta strong{display:block;font-size:12pt;color:white}
+.contenido{padding:20px 40px}
+.seccion{margin-bottom:30px;border:1px solid #dde3ec;border-radius:6px;overflow:hidden;page-break-inside:avoid}
+.seccion-header{background:#1a2942;color:white;padding:10px 18px;font-size:11pt;font-weight:bold;letter-spacing:.5px}
+.seccion-body{padding:18px 20px;line-height:1.7;color:#2a2a2a}
+h1{font-size:14pt;color:#1a2942;border-bottom:2px solid #1a2942;padding-bottom:6px;margin:14px 0 10px}
+h2{font-size:12pt;color:#1a2942;margin:12px 0 8px}
+h3{font-size:11pt;color:#2c3e6b;margin:10px 0 6px}
+li{margin-left:20px;margin-bottom:3px}
+ul{margin:8px 0}
+strong{color:#1a2942}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:10pt}
+td,th{border:1px solid #c8d4e0;padding:7px 10px}
+th{background:#eef2f7;font-weight:bold;color:#1a2942}
+tr:nth-child(even){background:#f8fafc}
+.footer{text-align:center;padding:20px;color:#888;font-size:9pt;border-top:1px solid #dde3ec;margin-top:30px}
+@media print{
+  .btn-imprimir{display:none!important}
+  .portada{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .seccion-header{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head><body>
+<div class="portada">
+  <div class="logo">LICIT<span style="color:#fff">IA</span></div>
+  <h1>${nombre}</h1>
+  <div class="organismo">${organismo}</div>
+  <div class="meta">
+    <div><span>Código</span><strong>${codigo||'—'}</strong></div>
+    <div><span>Empresa</span><strong>${empresa}</strong></div>
+    <div><span>RUT</span><strong>${rut||'—'}</strong></div>
+    <div><span>Fecha</span><strong>${fecha}</strong></div>
+  </div>
+</div>
+<div class="contenido">${htmlSecciones}</div>
+<div class="footer">
+  Generado con LicitIA · ${fecha} · Documento confidencial
+</div>
+<div style="text-align:center;padding:16px">
+  <button class="btn-imprimir" onclick="window.print()"
+    style="background:#1a2942;color:white;border:none;padding:12px 32px;font-size:12pt;border-radius:6px;cursor:pointer;font-weight:bold">
+    🖨️ Imprimir / Guardar como PDF
+  </button>
+</div>
+</body></html>`;
+}
+
 // ─── SECCION CARD (fixes useState-in-map hook violation) ───────────
 function renderMarkdown(texto) {
   return texto
@@ -867,7 +945,7 @@ function Propuesta({ licitacionPre, onGuardar, onIrHistorial }) {
               {guardado&&<p style={{margin:"0 0 14px",color:C.purple,fontSize:11,fontFamily:"'DM Mono',monospace"}}>✓ Guardada automáticamente en Historial</p>}
               <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
                 <Btn onClick={exportar} variant="green" small>{copiado?"✓ COPIADO":"📋 COPIAR TODO"}</Btn>
-                <Btn onClick={()=>window.print()} variant="ghost" small>🖨️ PDF</Btn>
+                <Btn onClick={()=>{const v=window.open('','_blank');v.document.write(buildPropuestaHTML({nombre:lic.nombre,organismo:lic.organismo,codigo:lic.codigo,empresa:emp.nombre,rut:emp.rut,fecha:new Date().toLocaleDateString("es-CL"),secciones}));v.document.close();}} variant="ghost" small>🖨️ PDF</Btn>
                 {onIrHistorial&&<Btn onClick={onIrHistorial} variant="ghost" small>📁 VER HISTORIAL</Btn>}
                 <Btn onClick={()=>{setPstep(1);setSecciones({});setGuardado(false);}} variant="ghost" small>+ NUEVA PROPUESTA</Btn>
               </div>
@@ -886,7 +964,19 @@ function VerPropuesta({ entrada, onVolver }) {
     navigator.clipboard.writeText(texto);
     setCopiado(id); setTimeout(()=>setCopiado(null),1500);
   };
-  const exportarPDF = () => window.print();
+  const exportarPDF = () => {
+    const v = window.open('', '_blank');
+    v.document.write(buildPropuestaHTML({
+      nombre:    entrada.lic.nombre,
+      organismo: entrada.lic.organismo,
+      codigo:    entrada.lic.codigo,
+      empresa:   entrada.emp.nombre,
+      rut:       entrada.emp.rut,
+      fecha:     new Date(entrada.fecha).toLocaleDateString("es-CL"),
+      secciones: entrada.secciones,
+    }));
+    v.document.close();
+  };
   const copiarTodo = () => {
     const txt = `PROPUESTA TÉCNICA Y ECONÓMICA\n${"═".repeat(55)}\nLicitación: ${entrada.lic.nombre}\nOrganismo: ${entrada.lic.organismo}\nEmpresa: ${entrada.emp.nombre} | RUT: ${entrada.emp.rut}\nGenerado: ${new Date(entrada.fecha).toLocaleDateString("es-CL")}\n\n`
       + SECCIONES.map(s=>`${"═".repeat(55)}\n${s.icon} ${s.label.toUpperCase()}\n${"═".repeat(55)}\n\n${entrada.secciones[s.id]||"—"}\n\n`).join("\n");
