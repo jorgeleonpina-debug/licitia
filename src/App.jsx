@@ -301,7 +301,17 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
   const analizarBases = async (licitacion) => {
     setLoadingBases(true);
     try {
-      const r1 = await fetch(`/api/bases?codigo=${licitacion.CodigoLicitacion}`);
+      const p = new URLSearchParams({
+        codigo:      licitacion.CodigoLicitacion || '',
+        nombre:      licitacion.Nombre           || '',
+        organismo:   licitacion.Organismo        || '',
+        descripcion: licitacion.Descripcion      || '',
+        monto:       licitacion.MontoEstimado    || '0',
+        tipo:        licitacion.Tipo             || '',
+        region:      licitacion.Region           || '',
+        fechaCierre: licitacion.FechaCierre      || '',
+      });
+      const r1 = await fetch(`/api/bases?${p}`);
       const { texto } = await r1.json();
       const r2 = await fetch('/api/analizar', {
         method: 'POST',
