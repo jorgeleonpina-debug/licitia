@@ -153,6 +153,8 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
   const [alertaActiva, setAlertaActiva] = useState(()=>!!localStorage.getItem("licitia_alerta_hora"));
   const [analisisProfundo, setAnalisisProfundo] = useState({});
   const [loadingBases, setLoadingBases] = useState(false);
+  const [historicoPrecio, setHistoricoPrecio] = useState({});
+  const [loadingHistorico, setLoadingHistorico] = useState(false);
 
   const stats = {
     atacar:    licitaciones.filter(l=>l.recomendacion==="ATACAR").length,
@@ -324,9 +326,48 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
     setLoadingBases(false);
   };
 
+  const buscarHistorico = async (licitacion) => {
+    if (!ticket) return alert("Necesitas un ticket de API para buscar precios históricos.");
+    setLoadingHistorico(true);
+    try {
+      const p = new URLSearchParams({
+        rubro:     licitacion.Nombre     || '',
+        organismo: licitacion.Organismo  || '',
+        ticket,
+      });
+      const r1   = await fetch(`/api/historico?${p}`);
+      const { resultados } = await r1.json();
+
+      let precioIA = null;
+      if (resultados?.length > 0) {
+        const r2 = await fetch('/api/precio-sugerido', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            historico: resultados,
+            licitacion: {
+              nombre:    licitacion.Nombre      || '',
+              monto:     licitacion.MontoEstimado || 0,
+              tipo:      licitacion.Tipo          || '',
+              organismo: licitacion.Organismo     || '',
+            },
+          }),
+        });
+        precioIA = await r2.json();
+      }
+
+      setHistoricoPrecio(prev => ({
+        ...prev,
+        [licitacion.CodigoLicitacion]: { resultados: resultados || [], precioIA },
+      }));
+    } catch(e) { console.error('Error histórico:', e); }
+    setLoadingHistorico(false);
+  };
+
   const detalle = selected;
   const ds = detalle ? recStyle(detalle.recomendacion) : {};
   const ap = detalle ? analisisProfundo[detalle.CodigoLicitacion] : null;
+  const hp = detalle ? historicoPrecio[detalle.CodigoLicitacion] : null;
 
   return (
     <div style={{padding:20}}>
@@ -519,6 +560,77 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
                   style={{marginTop:8,background:"none",border:"none",color:C.muted,fontSize:10,cursor:"pointer",fontFamily:"'DM Mono',monospace"}}>
                   ↺ Volver a analizar
                 </button>
+              </div>
+            )}
+
+            {/* Precios históricos */}
+            {!hp && (
+              <Btn variant="ghost" onClick={()=>buscarHistorico(detalle)} disabled={loadingHistorico} small>
+                {loadingHistorico?"⏳ Buscando histórico...":"💰 VER PRECIOS HISTÓRICOS"}
+              </Btn>
+            )}
+            {hp && (
+              <div style={{marginBottom:14}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <Pill color={C.green}>PRECIOS HISTÓRICOS</Pill>
+                  <button onClick={()=>setHistoricoPrecio(prev=>({...prev,[detalle.CodigoLicitacion]:null}))}
+                    style={{background:"none",border:"none",color:C.muted,fontSize:10,cursor:"pointer",fontFamily:"'DM Mono',monospace"}}>
+                    ↺ Actualizar
+                  </button>
+                </div>
+
+                {/* Precio sugerido por IA */}
+                {hp.precioIA && (
+                  <div style={{background:`${C.green}08`,border:`1px solid ${C.green}30`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                      <div>
+                        <p style={{margin:"0 0 2px",color:C.green,fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:1}}>💰 PRECIO SUGERIDO</p>
+                        <p style={{margin:0,color:C.green,fontSize:20,fontWeight:700,fontFamily:"'DM Mono',monospace"}}>{fmt(hp.precioIA.precio_sugerido)}</p>
+                      </div>
+                      <Pill color={hp.precioIA.confianza==="alta"?C.green:hp.precioIA.confianza==="media"?C.yellow:C.red}>
+                        Confianza {hp.precioIA.confianza}
+                      </Pill>
+                    </div>
+                    <div style={{display:"flex",gap:12,marginBottom:8,flexWrap:"wrap"}}>
+                      <span style={{color:C.muted,fontSize:11}}>Rango: <span style={{color:C.text,fontWeight:600}}>{fmt(hp.precioIA.rango_minimo)} – {fmt(hp.precioIA.rango_maximo)}</span></span>
+                      {hp.precioIA.descuento_recomendado>0 && (
+                        <span style={{color:C.yellow,fontSize:11,fontFamily:"'DM Mono',monospace",fontWeight:700}}>-{hp.precioIA.descuento_recomendado}% bajo estimado</span>
+                      )}
+                    </div>
+                    {hp.precioIA.estrategia && (
+                      <p style={{margin:"0 0 6px",color:C.text,fontSize:11,lineHeight:1.5}}>{hp.precioIA.estrategia}</p>
+                    )}
+                    {hp.precioIA.advertencias?.map((a,i)=>(
+                      <div key={i} style={{display:"flex",gap:5,alignItems:"flex-start"}}>
+                        <span style={{color:C.yellow,fontSize:10}}>⚠</span>
+                        <span style={{color:C.muted,fontSize:10,lineHeight:1.4}}>{a}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Tabla de contratos similares */}
+                {hp.resultados?.length > 0 ? (
+                  <div>
+                    <p style={{margin:"0 0 6px",color:C.muted,fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:1}}>CONTRATOS SIMILARES ADJUDICADOS</p>
+                    {hp.resultados.map((h,i)=>(
+                      <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+                        <p style={{margin:"0 0 3px",color:C.text,fontSize:11,fontWeight:600,lineHeight:1.3}}>{h.nombre}</p>
+                        <p style={{margin:"0 0 4px",color:C.muted,fontSize:10,fontFamily:"'DM Mono',monospace"}}>{h.organismo}</p>
+                        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                          <span style={{color:C.muted,fontSize:10}}>Est. <span style={{color:C.text}}>{fmt(h.montoEstimado)}</span></span>
+                          <span style={{color:C.muted,fontSize:10}}>Adj. <span style={{color:C.green,fontWeight:700}}>{fmt(h.montoAdjudicado)}</span></span>
+                          {h.numeroOferentes>0 && <span style={{color:C.muted,fontSize:10}}>{h.numeroOferentes} oferentes</span>}
+                        </div>
+                        <p style={{margin:"3px 0 0",color:C.purple,fontSize:10}}>→ {h.proveedor}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{color:C.muted,fontSize:11,fontFamily:"'DM Mono',monospace",textAlign:"center",padding:"10px 0"}}>
+                    Sin contratos similares en los últimos 5 días
+                  </p>
+                )}
               </div>
             )}
 
