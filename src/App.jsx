@@ -151,6 +151,8 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
   const [loadingMsg, setLoadingMsg] = useState("");
   const [filtroRubro, setFiltroRubro] = useState("Todos");
   const [alertaActiva, setAlertaActiva] = useState(()=>!!localStorage.getItem("licitia_alerta_hora"));
+  const [analisisProfundo, setAnalisisProfundo] = useState({});
+  const [loadingBases, setLoadingBases] = useState(false);
 
   const stats = {
     atacar:    licitaciones.filter(l=>l.recomendacion==="ATACAR").length,
@@ -296,8 +298,25 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
     setLoadingMsg("");
   };
 
+  const analizarBases = async (licitacion) => {
+    setLoadingBases(true);
+    try {
+      const r1 = await fetch(`/api/bases?codigo=${licitacion.CodigoLicitacion}`);
+      const { texto } = await r1.json();
+      const r2 = await fetch('/api/analizar', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ textoBase: texto, licitacion }),
+      });
+      const data = await r2.json();
+      setAnalisisProfundo(prev => ({...prev, [licitacion.CodigoLicitacion]: data}));
+    } catch(e) { console.error('Error análisis bases:', e); }
+    setLoadingBases(false);
+  };
+
   const detalle = selected;
   const ds = detalle ? recStyle(detalle.recomendacion) : {};
+  const ap = detalle ? analisisProfundo[detalle.CodigoLicitacion] : null;
 
   return (
     <div style={{padding:20}}>
@@ -415,9 +434,84 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
               ))}
             </div>
             <div style={{background:`${ds.color}08`,border:`1px solid ${ds.color}25`,borderRadius:10,padding:"12px 14px",marginBottom:14}}>
-              <p style={{margin:"0 0 4px",color:ds.color,fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:1}}>ANÁLISIS</p>
+              <p style={{margin:"0 0 4px",color:ds.color,fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:1}}>ANÁLISIS RÁPIDO</p>
               <p style={{margin:0,color:C.text,fontSize:12,lineHeight:1.6}}>{detalle.razon}</p>
             </div>
+
+            {/* Análisis profundo */}
+            {!ap && (
+              <Btn variant="ghost" onClick={()=>analizarBases(detalle)} disabled={loadingBases} small>
+                {loadingBases?"⏳ Analizando bases...":"🔍 ANALIZAR BASES COMPLETAS"}
+              </Btn>
+            )}
+            {ap && (
+              <div style={{marginBottom:14}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+                  <Pill color={C.purple}>ANÁLISIS PROFUNDO</Pill>
+                  <Ring score={ap.score||detalle.score}/>
+                  <span style={{color:C.purple,fontSize:11,fontFamily:"'DM Mono',monospace",fontWeight:700}}>{ap.recomendacion||detalle.recomendacion}</span>
+                </div>
+                {ap.oportunidad_resumen && (
+                  <div style={{background:`${C.purple}10`,border:`1px solid ${C.purple}25`,borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+                    <p style={{margin:0,color:C.text,fontSize:12,lineHeight:1.5}}>{ap.oportunidad_resumen}</p>
+                  </div>
+                )}
+                {ap.razon && (
+                  <p style={{margin:"0 0 10px",color:C.muted,fontSize:11,lineHeight:1.6}}>{ap.razon}</p>
+                )}
+                {ap.requisitos_clave?.length>0 && (
+                  <div style={{marginBottom:10}}>
+                    <p style={{margin:"0 0 5px",color:C.muted,fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:1}}>REQUISITOS CLAVE</p>
+                    {ap.requisitos_clave.map((r,i)=>(
+                      <div key={i} style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:3}}>
+                        <span style={{color:C.yellow,fontSize:10,marginTop:1}}>▸</span>
+                        <span style={{color:C.text,fontSize:11}}>{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {ap.criterios_evaluacion?.length>0 && (
+                  <div style={{marginBottom:10}}>
+                    <p style={{margin:"0 0 5px",color:C.muted,fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:1}}>CRITERIOS EVALUACIÓN</p>
+                    {ap.criterios_evaluacion.map((c,i)=>(
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                        <span style={{color:C.text,fontSize:11}}>{c.criterio}</span>
+                        <span style={{color:C.accent,fontSize:11,fontFamily:"'DM Mono',monospace",fontWeight:700}}>{c.porcentaje}%</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {ap.documentos_necesarios?.length>0 && (
+                  <div style={{marginBottom:10}}>
+                    <p style={{margin:"0 0 5px",color:C.muted,fontSize:9,fontFamily:"'DM Mono',monospace",letterSpacing:1}}>DOCUMENTOS NECESARIOS</p>
+                    {ap.documentos_necesarios.map((d,i)=>(
+                      <div key={i} style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:3}}>
+                        <span style={{color:C.green,fontSize:10,marginTop:1}}>✓</span>
+                        <span style={{color:C.text,fontSize:11}}>{d}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {ap.nivel_competencia_estimado && (
+                    <Pill color={ap.nivel_competencia_estimado==="bajo"?C.green:ap.nivel_competencia_estimado==="medio"?C.yellow:C.red}>
+                      Competencia {ap.nivel_competencia_estimado}
+                    </Pill>
+                  )}
+                  {ap.plazo_ejecucion && (
+                    <Pill color={C.muted}>⏱ {ap.plazo_ejecucion}</Pill>
+                  )}
+                  {ap.precio_referencial && (
+                    <Pill color={C.accent}>{fmt(ap.precio_referencial)}</Pill>
+                  )}
+                </div>
+                <button onClick={()=>setAnalisisProfundo(prev=>({...prev,[detalle.CodigoLicitacion]:null}))}
+                  style={{marginTop:8,background:"none",border:"none",color:C.muted,fontSize:10,cursor:"pointer",fontFamily:"'DM Mono',monospace"}}>
+                  ↺ Volver a analizar
+                </button>
+              </div>
+            )}
+
             {detalle.recomendacion==="ATACAR" && (
               <Btn variant="purple" onClick={()=>onSelectForPropuesta(detalle)}>
                 ✍️ GENERAR PROPUESTA →
