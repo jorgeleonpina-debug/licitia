@@ -13,6 +13,13 @@ import {
   deduplicateOpportunities,
   detectOliveOilMatch,
 } from "../../lib/oliveOilMatcher.js";
+import {
+  migrateRetryMetadata,
+  reconcileRetryResults,
+  sanitizeRowsForUpsert,
+  selectSyncBatch,
+  shouldCompleteJob,
+} from "./syncState.js";
 
 const JOB_TYPE = "mercado_publico_olive_oil";
 
@@ -49,7 +56,7 @@ async function findOrCreateJob(supabase) {
     .insert({
       job_type: JOB_TYPE,
       status: "in_progress",
-      metadata: { codes, total: codes.length, api: metadata, errorCount: 0, failedCodes: [] },
+      metadata: { codes, total: codes.length, api: metadata, errorCount: 0, retryQueue: [], failedPermanent: [] },
     })
     .select("*")
     .single();
@@ -120,7 +127,7 @@ async function analyzeTender(code, now) {
     return { code, opportunities, error: null };
   } catch (error) {
     console.error("[mercado-publico] detail failed", { code, error: error.message });
-    return { code, opportunities: [], error: error.message };
+    return { code, opportunities: [], error: error.message, transient: error.transient === true };
   }
 }
 
@@ -139,14 +146,15 @@ async function existingKeys(supabase, keys) {
 
 async function persistOpportunities(supabase, rows) {
   if (!rows.length) return { inserted: 0, updated: 0 };
-  const currentKeys = await existingKeys(supabase, rows.map((row) => row.external_item_key));
+  const safeRows = sanitizeRowsForUpsert(rows);
+  const currentKeys = await existingKeys(supabase, safeRows.map((row) => row.external_item_key));
   const { error } = await supabase
     .from("licitaciones_oportunidades")
-    .upsert(rows, { onConflict: "external_item_key", ignoreDuplicates: false });
+    .upsert(safeRows, { onConflict: "external_item_key", ignoreDuplicates: false });
   if (error) throw error;
   return {
-    inserted: rows.filter((row) => !currentKeys.has(row.external_item_key)).length,
-    updated: rows.filter((row) => currentKeys.has(row.external_item_key)).length,
+    inserted: safeRows.filter((row) => !currentKeys.has(row.external_item_key)).length,
+    updated: safeRows.filter((row) => currentKeys.has(row.external_item_key)).length,
   };
 }
 
@@ -169,33 +177,58 @@ export default async function handler(req, res) {
   try {
     const supabase = getSupabaseAdmin();
     job = await findOrCreateJob(supabase);
-    const codes = Array.isArray(job.metadata?.codes) ? job.metadata.codes : [];
+    const baseMetadata = migrateRetryMetadata(job.metadata);
+    const codes = Array.isArray(baseMetadata.codes) ? baseMetadata.codes : [];
     const requestedBatch = Number(req.query?.batchSize ?? req.body?.batchSize ?? 25);
     const batchSize = Math.min(50, Math.max(1, Number.isFinite(requestedBatch) ? requestedBatch : 25));
     const concurrency = Math.min(8, Math.max(1, Number(process.env.MERCADO_PUBLICO_CONCURRENCY) || 5));
-    const batchCodes = codes.slice(job.cursor, job.cursor + batchSize);
+    const selection = selectSyncBatch({
+      codes,
+      cursor: job.cursor,
+      retryQueue: baseMetadata.retryQueue,
+      batchSize,
+    });
+    const queuedAttempts = new Map(baseMetadata.retryQueue.map((entry) => [entry.code, entry.attempts]));
+    selection.entries.filter((entry) => entry.fromRetry).forEach((entry) => {
+      console.info("[mercado-publico] retrying queued code", { code: entry.code, attempts: queuedAttempts.get(entry.code) || 0 });
+    });
     const now = new Date();
-    const analyzed = await mapWithConcurrency(batchCodes, concurrency, (code) => analyzeTender(code, now));
+    const analyzed = await mapWithConcurrency(selection.entries, concurrency, async (entry) => ({
+      ...await analyzeTender(entry.code, now),
+      fromRetry: entry.fromRetry,
+    }));
     const rows = deduplicateOpportunities(analyzed.flatMap((result) => result.opportunities));
     const persistence = await persistOpportunities(supabase, rows);
     const failures = analyzed.filter((result) => result.error);
-    const nextCursor = job.cursor + batchCodes.length;
-    const hasMore = nextCursor < codes.length;
-    const previousErrorCount = Number(job.metadata?.errorCount) || 0;
+    const retryState = reconcileRetryResults({
+      retryQueue: baseMetadata.retryQueue,
+      failedPermanent: baseMetadata.failedPermanent,
+      results: analyzed,
+      attemptedAt: now.toISOString(),
+    });
+    retryState.retrySucceeded.forEach((code) => console.info("[mercado-publico] retry succeeded", { code }));
+    retryState.queuedForRetry.forEach((code) => console.warn("[mercado-publico] queued for retry", { code }));
+    retryState.movedToPermanent.forEach((code) => console.error("[mercado-publico] moved to permanent failure", { code }));
+
+    const nextCursor = selection.nextCursor;
+    const completed = shouldCompleteJob({ cursor: nextCursor, total: codes.length, retryQueue: retryState.retryQueue });
+    const hasMore = !completed;
+    const previousErrorCount = Number(baseMetadata.errorCount) || 0;
     const metadata = {
-      ...job.metadata,
+      ...baseMetadata,
       errorCount: previousErrorCount + failures.length,
-      failedCodes: [...(job.metadata?.failedCodes || []), ...failures.map(({ code, error }) => ({ code, error }))].slice(-100),
+      retryQueue: retryState.retryQueue,
+      failedPermanent: retryState.failedPermanent,
     };
 
     const update = {
       cursor: nextCursor,
-      processed: job.processed + batchCodes.length,
+      processed: job.processed + selection.newCodesCount,
       matched: job.matched + rows.length,
       metadata,
       error: failures.length ? `${failures.length} detalles fallaron en el último lote` : null,
     };
-    if (!hasMore) {
+    if (completed) {
       update.status = "completed";
       update.finished_at = new Date().toISOString();
       if (metadata.errorCount === 0) await markNoLongerActive(supabase, job);
@@ -203,20 +236,25 @@ export default async function handler(req, res) {
     const { error: updateError } = await supabase.from("sync_jobs").update(update).eq("id", job.id);
     if (updateError) throw updateError;
 
-    return res.status(200).json({
+    const response = {
       ok: true,
       jobId: job.id,
       total: codes.length,
-      processed: batchCodes.length,
+      processed: selection.entries.length,
       processedTotal: update.processed,
       matched: rows.length,
       inserted: persistence.inserted,
       updated: persistence.updated,
       errors: failures.length,
+      retried: selection.retried,
+      retryQueueSize: retryState.retryQueue.length,
+      failedPermanent: retryState.failedPermanent.length,
       hasMore,
       nextCursor,
       durationMs: Date.now() - startedAt,
-    });
+    };
+    console.info("[mercado-publico] sync summary", response);
+    return res.status(200).json(response);
   } catch (error) {
     console.error("[mercado-publico] sync failed", error);
     if (job?.id) {

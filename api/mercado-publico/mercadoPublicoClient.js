@@ -3,6 +3,17 @@ export const MERCADO_PUBLICO_SEARCH_URL = "https://www.mercadopublico.cl/BuscarL
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+export function calculateBackoffDelay(attempt, random = Math.random) {
+  return 800 * (2 ** (attempt - 1)) + Math.floor(random() * 301);
+}
+
+function requestError(message, { status, transient, cause } = {}) {
+  const error = new Error(message, cause ? { cause } : undefined);
+  error.status = status;
+  error.transient = transient;
+  return error;
+}
+
 export async function requestMercadoPublico(params, options = {}) {
   const ticket = process.env.MERCADO_PUBLICO_TICKET;
   if (!ticket) throw new Error("MERCADO_PUBLICO_TICKET no está configurado");
@@ -21,25 +32,32 @@ export async function requestMercadoPublico(params, options = {}) {
       const response = await fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } });
       if (response.ok) {
         const data = await response.json();
+        if (Number(data?.Codigo) === 10500) {
+          throw requestError(data?.Mensaje || "Mercado Público rechazó peticiones simultáneas", { status: 429, transient: true });
+        }
         if (data?.Codigo === 500 || data?.Codigo === 401) {
-          throw new Error(data?.Mensaje || "Mercado Público rechazó la solicitud");
+          throw requestError(data?.Mensaje || "Mercado Público rechazó la solicitud", { status: Number(data.Codigo), transient: Number(data.Codigo) === 500 });
         }
         return data;
       }
       const retryable = response.status === 429 || response.status >= 500;
       const body = await response.text();
-      const error = new Error(`Mercado Público HTTP ${response.status}: ${body.slice(0, 240)}`);
+      const error = requestError(`Mercado Público HTTP ${response.status}: ${body.slice(0, 240)}`, { status: response.status, transient: retryable });
       if (!retryable) throw error;
       lastError = error;
     } catch (error) {
       lastError = error;
-      if (error?.name !== "AbortError" && /HTTP 4\d\d/.test(error?.message || "") && !/HTTP 429/.test(error.message)) throw error;
+      if (error?.transient === false) throw error;
     } finally {
       clearTimeout(timer);
     }
-    if (attempt < maxRetries) await sleep(400 * (2 ** (attempt - 1)) + Math.floor(Math.random() * 150));
+    if (attempt < maxRetries) await sleep(calculateBackoffDelay(attempt));
   }
-  throw new Error(`Mercado Público falló después de ${maxRetries} intentos: ${lastError?.message || "error desconocido"}`);
+  throw requestError(`Mercado Público falló después de ${maxRetries} intentos: ${lastError?.message || "error desconocido"}`, {
+    status: lastError?.status,
+    transient: lastError?.transient !== false,
+    cause: lastError,
+  });
 }
 
 function asArray(value) {
