@@ -23,11 +23,11 @@ ANÁLISIS CONTEXTUAL:
     tipo === 'LQ' ? 'Licitación 2000-5000 UTM (~$70M-$175M), alta complejidad' :
     tipo === 'LR' ? 'Licitación mayor 5000 UTM (>$175M), máxima complejidad' : tipo
   }
-- Ver bases completas en: https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${codigo}
+- Busca el código ${codigo} en: https://www.mercadopublico.cl/BuscarLicitacion
   `;
 
   res.status(200).json({
     texto,
-    url: `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${codigo}`
+    url: 'https://www.mercadopublico.cl/BuscarLicitacion'
   });
 }

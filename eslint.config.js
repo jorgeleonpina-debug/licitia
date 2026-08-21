@@ -17,5 +17,19 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      // Estas reglas experimentales del plugin 7 chocan con el monolito React heredado.
+      // exhaustive-deps y rules-of-hooks permanecen activas.
+      'react-hooks/immutability': 'off',
+      'react-hooks/purity': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+    },
+  },
+  {
+    files: ['api/**/*.js', 'lib/**/*.js', 'server.js', 'tests/**/*.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
   },
 ])

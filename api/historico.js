@@ -1,8 +1,9 @@
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  const { rubro, organismo, ticket } = req.query;
+  const { rubro } = req.query;
+  const ticket = process.env.MERCADO_PUBLICO_TICKET;
 
-  if (!ticket) return res.status(400).json({ error: 'Falta ticket' });
+  if (!ticket) return res.status(500).json({ error: 'MERCADO_PUBLICO_TICKET no configurado' });
 
   try {
     const resultados = [];

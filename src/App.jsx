@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import LicitacionesPage from "./features/licitaciones/LicitacionesPage.jsx";
 
 // ─── DESIGN TOKENS ────────────────────────────────────────────────
 const C = {
@@ -113,6 +114,7 @@ function Nav({ view, setView, modoReal, historialCount }) {
       </div>
       <div style={{display:"flex",gap:2}}>
         {[
+          {id:"licitaciones", icon:"◈", label:"Oportunidades", badge:null},
           {id:"dashboard", icon:"🎯", label:"Radar",    badge:null},
           {id:"propuesta", icon:"✍️", label:"Propuesta", badge:null},
           {id:"historial", icon:"📁", label:"Historial", badge:historialCount||null},
@@ -141,9 +143,10 @@ function Nav({ view, setView, modoReal, historialCount }) {
 }
 
 // ─── DASHBOARD VIEW ────────────────────────────────────────────────
-function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSelectForPropuesta }) {
-  const [ticket, setTicket]   = useState(()=>localStorage.getItem("licitia_ticket")||"");
-  useEffect(()=>{ localStorage.setItem("licitia_ticket", ticket); },[ticket]);
+function Dashboard({ licitaciones, setLicitaciones, setModoReal, onSelectForPropuesta }) {
+  // El radar heredado queda en modo demo. El ticket real vive exclusivamente en el backend.
+  const ticket = "";
+  const setTicket = () => {};
   const [loading, setLoading] = useState(false);
   const [filtro, setFiltro]   = useState("TODAS");
   const [selected, setSelected] = useState(null);
@@ -248,7 +251,7 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
       const hoy=new Date(), dd=String(hoy.getDate()).padStart(2,"0"), mm=String(hoy.getMonth()+1).padStart(2,"0");
       const fecha=`${dd}${mm}${hoy.getFullYear()}`;
       setLoadingMsg("Obteniendo listado del día...");
-      const res = await fetch(`https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json?fecha=${fecha}&estado=publicada&ticket=${ticket}`);
+      const res = await fetch(`/api/mercado-publico/legacy-disabled?fecha=${fecha}`);
       const data = await res.json();
       if(data?.Listado?.length>0){
         console.log("PRIMER ITEM RAW:", JSON.stringify(data.Listado[0], null, 2));
@@ -261,7 +264,7 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
           setLoadingMsg(`Cargando detalle ${i+1} de ${basicos.length}...`);
           await sleep(300);
           try {
-            const r2 = await fetch(`https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json?codigo=${item.CodigoExterno}&ticket=${ticket}`);
+            const r2 = await fetch(`/api/mercado-publico/legacy-disabled?codigo=${encodeURIComponent(item.CodigoExterno)}`);
             const d2 = await r2.json();
             const detalle = d2?.Listado?.[0] || {};
             completos.push({
@@ -337,7 +340,6 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
       const p = new URLSearchParams({
         rubro:     licitacion.Nombre     || '',
         organismo: licitacion.Organismo  || '',
-        ticket,
       });
       const r1   = await fetch(`/api/historico?${p}`);
       const { resultados } = await r1.json();
@@ -377,7 +379,7 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
     <div style={{padding:20}}>
       {/* API bar */}
       <div style={{background:C.card,borderRadius:12,padding:"12px 16px",border:`1px solid ${C.border}`,marginBottom:16,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-        <input value={ticket} onChange={e=>setTicket(e.target.value)} placeholder="Pega tu ticket de API aquí (api.mercadopublico.cl)…"
+        <input disabled value={ticket} onChange={e=>setTicket(e.target.value)} placeholder="API segura disponible en Oportunidades"
           style={{flex:1,minWidth:220,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 13px",color:C.text,fontFamily:"'DM Mono',monospace",fontSize:12,outline:"none"}}/>
         <Btn onClick={conectar} disabled={!ticket||loading}>{loading?"CARGANDO…":"CONECTAR API"}</Btn>
         {loading && loadingMsg
@@ -649,7 +651,7 @@ function Dashboard({ licitaciones, setLicitaciones, modoReal, setModoReal, onSel
                 ✍️ GENERAR PROPUESTA →
               </Btn>
             )}
-            <a href={`https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${detalle.CodigoLicitacion}`} target="_blank" rel="noreferrer"
+            <a href="https://www.mercadopublico.cl/BuscarLicitacion" target="_blank" rel="noreferrer"
               style={{display:"block",marginTop:8,textAlign:"center",background:C.surface,color:C.muted,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px",textDecoration:"none",fontSize:11,fontFamily:"'DM Mono',monospace"}}>
               VER EN MERCADO PÚBLICO ↗
             </a>
@@ -1125,7 +1127,7 @@ function Historial({ historial, onEliminar, onVerPropuesta }) {
 const LS_KEY = "licitia_historial_v1";
 
 export default function App() {
-  const [view, setView]             = useState("dashboard");
+  const [view, setView]             = useState(() => window.location.pathname === "/licitaciones" ? "licitaciones" : "dashboard");
   const [licitaciones, setLicitaciones] = useState(MOCK);
   const [modoReal, setModoReal]     = useState(false);
   const [licPre, setLicPre]         = useState(null);
@@ -1134,6 +1136,18 @@ export default function App() {
     catch { return []; }
   });
   const [verEntrada, setVerEntrada] = useState(null);
+
+  useEffect(() => {
+    const onPopState = () => setView(window.location.pathname === "/licitaciones" ? "licitaciones" : "dashboard");
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const navigate = (nextView) => {
+    const nextPath = nextView === "licitaciones" ? "/licitaciones" : "/";
+    if (window.location.pathname !== nextPath) window.history.pushState({}, "", nextPath);
+    setView(nextView);
+  };
 
   useEffect(() => {
     try { localStorage.setItem(LS_KEY, JSON.stringify(historial)); }
@@ -1185,7 +1199,9 @@ export default function App() {
         </div>
       </div>
 
-      <Nav view={view} setView={setView} modoReal={modoReal} historialCount={historial.length}/>
+      <Nav view={view} setView={navigate} modoReal={modoReal} historialCount={historial.length}/>
+
+      {view==="licitaciones" && <LicitacionesPage/>}
 
       {view==="dashboard" && (
         <Dashboard
